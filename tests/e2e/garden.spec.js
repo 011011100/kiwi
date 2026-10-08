@@ -81,12 +81,13 @@ test('keeps keyboard movement while aiming, releases on blur and supports reduce
   await expect(garden).toHaveAttribute('data-mode', 'follow')
   await expect(garden).toHaveAttribute('data-moving', 'true')
 
-  await page.keyboard.down('KeyW')
+  // The mouse target can already be at the top edge; move away before testing blur.
+  await page.keyboard.down('KeyS')
   await expect(garden).toHaveAttribute('data-mode', 'keyboard')
   await expect(garden).toHaveAttribute('data-moving', 'true')
   await canvas.evaluate((element) => element.blur())
   await expect(garden).toHaveAttribute('data-moving', 'false')
-  await page.keyboard.up('KeyW')
+  await page.keyboard.up('KeyS')
   await canvas.focus()
   await page.keyboard.press('Space')
   await expect(garden).toHaveAttribute('data-pecks', '1')
