@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import { createKiwi } from './createKiwi.js'
 import { createInteractables } from './createInteractables.js'
-import { dampAngle, clampToGarden, keyboardVector, selectPeckTarget } from './movement.js'
+import { createMeadow } from './createMeadow.js'
+import { dampAngle, keyboardVector, selectPeckTarget } from './movement.js'
 
-const BACKGROUND = '#eeeee4'
+const BACKGROUND = '#a8cf7c'
 const PECK_DURATION = 0.46
 
 export function createKiwiGarden(container, { onState = () => {}, onError = () => {} } = {}) {
@@ -11,7 +12,38 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
   scene.background = new THREE.Color(BACKGROUND)
   const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 80)
   camera.position.set(6, 9, 12)
-  camera.lookAt(0, 0.3, 0)
+  const cameraTarget = new THREE.Vector3(0, 0.3, 0)
+  const cameraDirection = camera.position.clone().sub(cameraTarget)
+  const baseCameraDistance = cameraDirection.length()
+  cameraDirection.normalize()
+  camera.lookAt(cameraTarget)
+  const boundaryPoint = new THREE.Vector3()
+  const boundaryPointer = new THREE.Vector2()
+  const boundaryRaycaster = new THREE.Raycaster()
+  const boundaryGround = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+  const boundaryIntersection = new THREE.Vector3()
+
+  // Constrain ground positions to the actual viewport, with room for the whole model.
+  function clampPosition(position, { radius = 2.1, height = 3.0 } = {}) {
+    const halfWidth = (camera.right - camera.left) / 2
+    const halfHeight = (camera.top - camera.bottom) / 2
+    const basis = camera.matrixWorld.elements
+    const groundUp = Math.hypot(basis[4], basis[6])
+    const horizontalMargin = Math.min(0.9, (radius + 0.12) / halfWidth)
+    const bottomMargin = Math.min(0.9, (radius * groundUp + 0.15) / halfHeight)
+    const topMargin = Math.min(0.9, (height * Math.abs(basis[5]) + radius * groundUp + 0.15) / halfHeight)
+    boundaryPoint.set(position.x, 0, position.z).project(camera)
+    const x = THREE.MathUtils.clamp(boundaryPoint.x, -1 + horizontalMargin, 1 - horizontalMargin)
+    const y = THREE.MathUtils.clamp(boundaryPoint.y, -1 + bottomMargin, 1 - topMargin)
+    if (Math.abs(x - boundaryPoint.x) < 1e-9 && Math.abs(y - boundaryPoint.y) < 1e-9) return position
+    boundaryPointer.set(x, y)
+    boundaryRaycaster.setFromCamera(boundaryPointer, camera)
+    if (boundaryRaycaster.ray.intersectPlane(boundaryGround, boundaryIntersection)) {
+      position.x = boundaryIntersection.x
+      position.z = boundaryIntersection.z
+    }
+    return position
+  }
   let renderer
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
@@ -20,13 +52,13 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75))
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.24
+  renderer.toneMappingExposure = 1.05
   const canvas = renderer.domElement
   canvas.tabIndex = 0
-  canvas.setAttribute('aria-label', '几维鸟互动庭院。方向键或 WASD 走路，空格啄击，鼠标移动让头部转向。')
+  canvas.setAttribute('aria-label', '几维鸟互动庭院。移动鼠标引导走路；按方向键或 WASD 走路时，鼠标控制转头；点击或空格啄击。触屏拖动走路，轻点啄击。')
   canvas.setAttribute('aria-describedby', 'play-instructions')
   canvas.setAttribute('role', 'application')
   container.appendChild(canvas)
@@ -50,73 +82,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     parent.add(item)
     return item
   }
-  const floor = mesh(new THREE.PlaneGeometry(200, 200), matte(BACKGROUND))
-  floor.rotation.x = -Math.PI / 2
-  floor.position.y = -0.22
-  floor.castShadow = false
-  const island = mesh(new THREE.CylinderGeometry(5.55, 5.42, 0.24, 96), matte('#a1af83'))
-  island.position.y = -0.13
-  const meadow = mesh(new THREE.CircleGeometry(5.54, 96), matte('#bbc59b'))
-  meadow.rotation.x = -Math.PI / 2
-  meadow.position.y = -0.004
-  meadow.castShadow = false
-
-  // Seeded decoration stays consistent across resets and uses a few instanced draws.
-  let seed = 29
-  function random() {
-    seed = (1664525 * seed + 1013904223) >>> 0
-    return seed / 4294967296
-  }
-  const dummy = new THREE.Object3D()
-  const grass = new THREE.InstancedMesh(new THREE.ConeGeometry(0.025, 0.2, 3), matte('#73885c'), 580)
-  for (let i = 0; i < grass.count; i++) {
-    const angle = random() * Math.PI * 2
-    const radius = Math.sqrt(random()) * 5.36
-    dummy.position.set(Math.cos(angle) * radius, 0.04, Math.sin(angle) * radius)
-    dummy.rotation.set((random() - 0.5) * 0.7, random() * Math.PI, (random() - 0.5) * 0.6)
-    dummy.scale.setScalar(0.5 + random() * 0.7)
-    dummy.updateMatrix()
-    grass.setMatrixAt(i, dummy.matrix)
-  }
-  grass.receiveShadow = true
-  scene.add(grass)
-
-  const stones = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), matte('#c6c6b2'), 19)
-  for (let i = 0; i < stones.count; i++) {
-    const angle = random() * Math.PI * 2
-    const radius = 4.4 + random() * 0.7
-    dummy.position.set(Math.cos(angle) * radius, 0.06, Math.sin(angle) * radius)
-    dummy.rotation.set(random(), random(), random())
-    dummy.scale.set(0.1 + random() * 0.2, 0.08 + random() * 0.11, 0.12 + random() * 0.25)
-    dummy.updateMatrix()
-    stones.setMatrixAt(i, dummy.matrix)
-  }
-  stones.castShadow = true
-  stones.receiveShadow = true
-  scene.add(stones)
-
-  const leafMaterial = matte('#6f895c')
-  const leafLight = matte('#8b9c6c')
-  const stemMaterial = matte('#8a7854')
-  const leafGeometry = new THREE.SphereGeometry(1, 8, 6)
-  // Fern-like leaves frame the meadow, keeping the middle clear for the bird.
-  for (const [x, z, scale] of [[-3.6, -3.2, 1.2], [3.6, -3.4, 0.95], [-4.9, 0.1, 0.8], [4.6, 1.0, 0.6]]) {
-    const plant = new THREE.Group()
-    plant.position.set(x, 0, z)
-    plant.scale.setScalar(scale)
-    scene.add(plant)
-    for (let j = 0; j < 7; j++) {
-      const angle = j * 2.4
-      const stem = mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.75, 5), stemMaterial, plant)
-      stem.position.set(Math.sin(angle) * 0.16, 0.32, Math.cos(angle) * 0.16)
-      stem.rotation.z = Math.sin(angle) * 0.6
-      stem.rotation.x = Math.cos(angle) * 0.6
-      const leaf = mesh(leafGeometry, j % 2 ? leafMaterial : leafLight, plant)
-      leaf.position.set(Math.sin(angle) * 0.37, 0.62 + (j % 3) * 0.08, Math.cos(angle) * 0.37)
-      leaf.scale.set(0.16, 0.45, 0.055)
-      leaf.rotation.set(0.3, angle, Math.sin(angle) * -0.8)
-    }
-  }
+  createMeadow(scene)
 
   const pet = createKiwi()
   pet.root.position.set(-0.6, 0, 0.55)
@@ -155,7 +121,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     targets.push({ root, x, z, hitAt: -100, scale })
   }
 
-  const interactables = createInteractables(scene)
+  const interactables = createInteractables(scene, { clampPosition })
   const allTargets = [...targets, ...interactables.targets]
   allTargets.forEach((target) => { target.root.userData.interactionTarget = target })
 
@@ -200,7 +166,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
   let frame = 0
   let previousTime = 0
   let lastState = ''
-  let gardenRadius = 4.1
+  let touchGesture = null
 
   function publish(force = false) {
     const state = { mode, pecks, hits, moving: speed > 0.12, pecking: peckTime >= 0, ready: !contextLost }
@@ -239,7 +205,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     aimedTarget = object?.userData.interactionTarget || null
     if (aimedTarget) intersection.set(aimedTarget.x, 0, aimedTarget.z)
     else if (!raycaster.ray.intersectPlane(groundPlane, intersection)) return
-    const point = clampToGarden(intersection.x, intersection.z, gardenRadius)
+    const point = clampPosition(intersection)
     aim.set(point.x, 0, point.z)
     pointerActive = true
     hasAim = true
@@ -272,16 +238,66 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
       particle.item.visible = true
     })
   }
+  function finishTouchGesture() {
+    const gesture = touchGesture
+    touchGesture = null
+    if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id)
+    pointerActive = false
+    ring.visible = false
+    speed = 0
+  }
   function onPointerMove(event) {
-    if (event.pointerType !== 'touch') updatePointer(event)
+    if (event.pointerType === 'touch') {
+      if (!touchGesture || event.pointerId !== touchGesture.id) return
+      event.preventDefault()
+      const distance = Math.hypot(event.clientX - touchGesture.x, event.clientY - touchGesture.y)
+      if (!touchGesture.dragging && distance < 8) return
+      touchGesture.dragging = true
+      setMode('follow')
+      updatePointer(event)
+      return
+    }
+    if (touchGesture) return
+    if (!directions.size) setMode('follow')
+    updatePointer(event)
   }
   function onPointerDown(event) {
-    if (event.button !== 0) return
+    if (event.button !== 0 || event.isPrimary === false) return
     canvas.focus({ preventScroll: true })
+    if (event.pointerType === 'touch') {
+      if (touchGesture) return
+      event.preventDefault()
+      clearKeys()
+      touchGesture = { id: event.pointerId, x: event.clientX, y: event.clientY, startedAt: performance.now(), dragging: false }
+      canvas.setPointerCapture(event.pointerId)
+      updatePointer(event)
+      // A touch becomes movement only after the drag threshold, or a peck on release.
+      pointerActive = false
+      ring.visible = false
+      speed = 0
+      publish()
+      return
+    }
     updatePointer(event)
     peck()
   }
-  function onPointerLeave() {
+  function onPointerUp(event) {
+    if (!touchGesture || event.pointerId !== touchGesture.id) return
+    event.preventDefault()
+    const distance = Math.hypot(event.clientX - touchGesture.x, event.clientY - touchGesture.y)
+    const isTap = !touchGesture.dragging && distance < 8 && performance.now() - touchGesture.startedAt <= 350
+    if (isTap) updatePointer(event)
+    finishTouchGesture()
+    if (isTap) peck()
+    publish()
+  }
+  function onPointerCancel(event) {
+    if (!touchGesture || event.pointerId !== touchGesture.id) return
+    finishTouchGesture()
+    publish()
+  }
+  function onPointerLeave(event) {
+    if (event.pointerType === 'touch' && touchGesture) return
     pointerActive = false
     ring.visible = false
   }
@@ -289,6 +305,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     if (event.ctrlKey || event.altKey || event.metaKey) return
     if (keyMap[event.code]) {
       event.preventDefault()
+      if (touchGesture) finishTouchGesture()
       setMode('keyboard')
       heldKeys.add(event.code)
       updateDirections()
@@ -312,6 +329,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     updateDirections()
   }
   function reset() {
+    finishTouchGesture()
     clearKeys()
     pet.root.position.set(-0.6, 0, 0.55)
     pet.root.rotation.y = -0.8
@@ -331,19 +349,24 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     const height = container.clientHeight
     if (!width || !height || disposed) return
     const aspect = width / height
-    const viewHeight = aspect < 1 ? 11.7 : 8.9
+    const viewHeight = Math.max(8.9, 11.5 / aspect)
+    // A tall orthographic viewport needs more camera distance so its bottom ground
+    // rays start above the meadow and the whole bird stays beyond the near plane.
+    const cameraUpY = Math.hypot(cameraDirection.x, cameraDirection.z)
+    const distance = Math.max(baseCameraDistance, (viewHeight / 2 * cameraUpY + 3) / cameraDirection.y)
+    camera.position.copy(cameraTarget).addScaledVector(cameraDirection, distance)
+    camera.lookAt(cameraTarget)
+    camera.far = Math.max(80, distance * 2 + 20)
     camera.left = -viewHeight * aspect / 2
     camera.right = viewHeight * aspect / 2
     camera.top = viewHeight / 2
     camera.bottom = -viewHeight / 2
     camera.updateProjectionMatrix()
+    camera.updateMatrixWorld()
     renderer.setSize(width, height, false)
-    gardenRadius = Math.min(4.1, Math.max(2.35, viewHeight * aspect / 2 - 1.35))
-    const bounded = clampToGarden(pet.root.position.x, pet.root.position.z, gardenRadius)
-    pet.root.position.x = bounded.x
-    pet.root.position.z = bounded.z
-    const boundedAim = clampToGarden(aim.x, aim.z, gardenRadius)
-    aim.set(boundedAim.x, 0, boundedAim.z)
+    clampPosition(pet.root.position)
+    interactables.constrainToView()
+    clampPosition(aim)
     ring.position.set(aim.x, 0.016, aim.z)
   }
   function animate(timestamp) {
@@ -374,8 +397,8 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     }
     speed = THREE.MathUtils.damp(speed, targetSpeed, 13, dt)
     if (targetSpeed > 0) {
-      const point = clampToGarden(pet.root.position.x + dx * speed * dt, pet.root.position.z + dz * speed * dt, gardenRadius)
-      interactables.resolveMovement(point, gardenRadius)
+      const point = clampPosition({ x: pet.root.position.x + dx * speed * dt, z: pet.root.position.z + dz * speed * dt })
+      interactables.resolveMovement(point)
       const travelled = Math.hypot(point.x - pet.root.position.x, point.z - pet.root.position.z)
       pet.root.position.x = point.x
       pet.root.position.z = point.z
@@ -428,21 +451,20 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     if (!document.hidden && !disposed && !contextLost) frame = requestAnimationFrame(animate)
   }
   function onVisibility() {
-    clearKeys()
-    pointerActive = false
-    ring.visible = false
+    onBlur()
     resume()
   }
   function onBlur() {
     clearKeys()
-    pointerActive = false
-    ring.visible = false
+    finishTouchGesture()
+    publish()
   }
   function onMotionChange(event) { reducedMotion = event.matches }
   function onContextLost(event) {
     event.preventDefault()
     contextLost = true
     clearKeys()
+    finishTouchGesture()
     cancelAnimationFrame(frame)
     publish()
     onError('3D 画面连接中断了，请刷新页面重新打开小庭院。')
@@ -452,15 +474,19 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
   observer.observe(container)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerdown', onPointerDown)
+  canvas.addEventListener('pointerup', onPointerUp)
+  canvas.addEventListener('pointercancel', onPointerCancel)
+  canvas.addEventListener('lostpointercapture', onPointerCancel)
   canvas.addEventListener('pointerleave', onPointerLeave)
   canvas.addEventListener('keydown', onKeyDown)
-  canvas.addEventListener('blur', clearKeys)
+  canvas.addEventListener('blur', onBlur)
   canvas.addEventListener('webglcontextlost', onContextLost)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('blur', onBlur)
   document.addEventListener('visibilitychange', onVisibility)
   motionQuery.addEventListener('change', onMotionChange)
   resize()
+  canvas.focus({ preventScroll: true })
   publish(true)
   resume()
 
@@ -469,13 +495,17 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
     dispose() {
       if (disposed) return
       disposed = true
+      finishTouchGesture()
       cancelAnimationFrame(frame)
       observer.disconnect()
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerdown', onPointerDown)
+      canvas.removeEventListener('pointerup', onPointerUp)
+      canvas.removeEventListener('pointercancel', onPointerCancel)
+      canvas.removeEventListener('lostpointercapture', onPointerCancel)
       canvas.removeEventListener('pointerleave', onPointerLeave)
       canvas.removeEventListener('keydown', onKeyDown)
-      canvas.removeEventListener('blur', clearKeys)
+      canvas.removeEventListener('blur', onBlur)
       canvas.removeEventListener('webglcontextlost', onContextLost)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)

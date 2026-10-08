@@ -63,8 +63,8 @@ function grassGeometry() {
   return geometry
 }
 
-/** Movable wooden blocks and bendable grass. radius in resolveMovement is the garden boundary. */
-export function createInteractables(scene) {
+/** Movable toys; an optional viewport clamp overrides the legacy circular field boundary. */
+export function createInteractables(scene, { clampPosition } = {}) {
   const targets = []
   const blocks = []
   const grasses = []
@@ -151,11 +151,16 @@ export function createInteractables(scene) {
 
   function keepBlockInside(block, radius = FIELD_RADIUS) {
     const position = block.root.position
-    const limit = Math.max(0.2, radius - block.radius)
-    if (Math.hypot(position.x, position.z) > limit) {
-      limitPoint(position, limit)
-      const nx = position.x / limit
-      const nz = position.z / limit
+    const oldX = position.x
+    const oldZ = position.z
+    if (clampPosition) clampPosition(position, { radius: block.radius + 0.12, height: block.config.size[1] + 0.3 })
+    else limitPoint(position, Math.max(0.2, radius - block.radius))
+    const dx = oldX - position.x
+    const dz = oldZ - position.z
+    const correction = Math.hypot(dx, dz)
+    if (correction > 1e-8) {
+      const nx = dx / correction
+      const nz = dz / correction
       const outward = block.velocity.x * nx + block.velocity.y * nz
       if (outward > 0) {
         block.velocity.x -= outward * nx
@@ -163,6 +168,14 @@ export function createInteractables(scene) {
       }
     }
     syncTarget(block)
+  }
+
+  function constrainBird(position, radius) {
+    return clampPosition ? clampPosition(position) : limitPoint(position, radius)
+  }
+
+  function constrainToView() {
+    blocks.forEach((block) => keepBlockInside(block))
   }
 
   function update(dt, time, birdPosition, reducedMotion = false) {
@@ -203,7 +216,7 @@ export function createInteractables(scene) {
   }
 
   function resolveMovement(position, radius = FIELD_RADIUS) {
-    limitPoint(position, radius)
+    constrainBird(position, radius)
     // Two passes settle the uncommon case of the bird touching both toys at once.
     for (let pass = 0; pass < 2; pass++) {
       for (const block of blocks) {
@@ -235,7 +248,7 @@ export function createInteractables(scene) {
         if (distance < separation && distance > 0.0001) {
           position.x = block.root.position.x + dx / distance * separation
           position.z = block.root.position.z + dz / distance * separation
-          limitPoint(position, radius)
+          constrainBird(position, radius)
         }
       }
     }
@@ -260,5 +273,5 @@ export function createInteractables(scene) {
     }
   }
 
-  return { targets, update, reset, resolveMovement }
+  return { targets, update, reset, resolveMovement, constrainToView }
 }
