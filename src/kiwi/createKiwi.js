@@ -2,6 +2,11 @@ import * as THREE from 'three'
 
 const TAU = Math.PI * 2
 const clamp = THREE.MathUtils.clamp
+const BODY_WIDTH = 0.46
+const BODY_HEIGHT = 0.66
+const BODY_LENGTH = 0.83
+const HEAD_HEIGHT = 0.54
+const HEAD_FORWARD = 0.6
 
 function seededRandom(seed = 17) {
   return () => {
@@ -13,7 +18,7 @@ function seededRandom(seed = 17) {
 function surfacePoint(unit, head = false) {
   if (head) return new THREE.Vector3(unit.x * 0.31, unit.y * 0.32, unit.z * 0.345)
   const pear = 1 - unit.y * 0.15
-  return new THREE.Vector3(unit.x * 0.61 * pear, unit.y * 0.66, unit.z * 0.72 * pear - 0.11)
+  return new THREE.Vector3(unit.x * BODY_WIDTH * pear, unit.y * BODY_HEIGHT, unit.z * BODY_LENGTH * pear - 0.11)
 }
 
 function roundedMesh(material, scale, position, parent) {
@@ -87,7 +92,7 @@ function addFeathers(parent, count, head = false) {
     const theta = i * Math.PI * (3 - Math.sqrt(5))
     const unit = new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius)
     const point = surfacePoint(unit, head)
-    normal.set(unit.x / (head ? 0.31 : 0.61), unit.y / (head ? 0.32 : 0.66), unit.z / (head ? 0.345 : 0.72)).normalize()
+    normal.set(unit.x / (head ? 0.31 : BODY_WIDTH), unit.y / (head ? 0.32 : BODY_HEIGHT), unit.z / (head ? 0.345 : BODY_LENGTH)).normalize()
     flow.set(unit.x * 0.15, -0.85, -0.42)
     tangent.copy(flow).addScaledVector(normal, -flow.dot(normal)).normalize()
     // Lie almost flat against the skin; only the fine tips break the silhouette.
@@ -111,7 +116,7 @@ function addFeathers(parent, count, head = false) {
 
 /**
  * A self-contained, procedural kiwi. Local +Z is forward; feet stand at Y = 0.
- * Approximate resting bounds: X ±0.72, Y 0..1.74, Z -0.91..1.55.
+ * Approximate resting bounds: X ±0.55, Y 0..1.74, Z -0.99..1.68.
  * speed is a nonnegative normalized walking intensity (values above 1 are clamped).
  * headYaw/headPitch are local radians; peck is the 0..1 progress of a single peck.
  */
@@ -149,14 +154,14 @@ export function createKiwi() {
   addFeathers(body, 1550)
 
   for (const side of [-1, 1]) {
-    const wing = roundedMesh(wingCoat, [0.08, 0.19, 0.23], [side * 0.575, 0.015, -0.08], body)
+    const wing = roundedMesh(wingCoat, [0.065, 0.19, 0.265], [side * 0.43, 0.015, -0.08], body)
     wing.rotation.x = -0.35
     wing.rotation.z = side * 0.22
   }
 
   const head = new THREE.Group()
   head.name = 'head'
-  head.position.set(0, 0.52, 0.46)
+  head.position.set(0, HEAD_HEIGHT, HEAD_FORWARD)
   head.rotation.order = 'YXZ'
   body.add(head)
   roundedMesh(coat, [0.31, 0.32, 0.345], [0, 0, 0], head)
@@ -177,7 +182,7 @@ export function createKiwi() {
   const legs = [-1, 1].map((side) => {
     const leg = new THREE.Group()
     leg.name = side < 0 ? 'left-leg' : 'right-leg'
-    leg.position.set(side * 0.235, 0.255, -0.015)
+    leg.position.set(side * 0.185, 0.255, -0.015)
     root.add(leg)
     roundedMesh(footMaterial, [0.066, 0.16, 0.06], [0, -0.062, 0], leg)
     const foot = new THREE.Group()
@@ -214,7 +219,7 @@ export function createKiwi() {
     head.rotation.y = clamp(headYaw, -1.12, 1.12)
     head.rotation.x = clamp(headPitch, -0.3, 0.32) + strike * 1.02
     head.rotation.z = Math.sin(time * 0.85) * 0.018 * (1 - stride) * motion
-    head.position.set(0, 0.52 - strike * 0.022, 0.46 + strike * 0.065)
+    head.position.set(0, HEAD_HEIGHT - strike * 0.022, HEAD_FORWARD + strike * 0.065)
 
     legs.forEach((leg, index) => {
       const phase = walkPhase + index * Math.PI

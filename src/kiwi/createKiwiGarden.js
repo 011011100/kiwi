@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { createKiwi } from './createKiwi.js'
 import { createInteractables } from './createInteractables.js'
-import { dampAngle, clampToGarden, keyboardVector, canPeckTarget } from './movement.js'
+import { dampAngle, clampToGarden, keyboardVector, selectPeckTarget } from './movement.js'
 
 const BACKGROUND = '#eeeee4'
 const PECK_DURATION = 0.46
@@ -259,9 +259,7 @@ export function createKiwiGarden(container, { onState = () => {}, onError = () =
   }
   function hitTarget() {
     const pose = { x: pet.root.position.x, z: pet.root.position.z, yaw: pet.root.rotation.y }
-    const target = allTargets
-      .filter((item) => canPeckTarget(pose, item, { reach: 1.9, halfAngle: Math.PI / 3 }))
-      .sort((a, b) => Math.hypot(a.x - pose.x, a.z - pose.z) - Math.hypot(b.x - pose.x, b.z - pose.z))[0]
+    const target = selectPeckTarget(pose, allTargets, aimedTarget)
     if (!target) return
     if (target.onPeck) target.onPeck(elapsed, pose)
     else target.hitAt = elapsed

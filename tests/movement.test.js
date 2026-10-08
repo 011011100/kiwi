@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   canPeckTarget,
+  selectPeckTarget,
   clampToGarden,
   dampAngle,
   keyboardVector,
@@ -99,4 +100,14 @@ test('peck angle boundaries and rotated birds are handled correctly', () => {
     { x: Math.sin(-Math.PI + 0.1), z: Math.cos(-Math.PI + 0.1) },
     { reach: 1.1, halfAngle: 0.3 },
   ), true)
+})
+
+test('clicking a reachable block takes priority over a closer mushroom', () => {
+  const block = { x: 1, z: -2.7 }
+  const mushroom = { x: 2.15, z: -1.65 }
+  const pose = { x: 1.6, z: -1, yaw: Math.atan2(-0.6, -1.7) }
+  assert.equal(selectPeckTarget(pose, [mushroom, block], block), block)
+  assert.equal(selectPeckTarget(pose, [mushroom, block]), mushroom)
+  assert.equal(selectPeckTarget(pose, [{ x: 10, z: 10 }]), undefined)
+  assert.equal(selectPeckTarget(pose, [mushroom, { x: 10, z: 10 }], block), mushroom)
 })

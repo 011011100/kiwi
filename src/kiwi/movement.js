@@ -47,3 +47,12 @@ export function canPeckTarget(
   const angle = normalizeAngle(Math.atan2(dx, dz) - yaw)
   return Math.abs(angle) <= halfAngle + Number.EPSILON * 8
 }
+
+/** Respect a clicked target when reachable; free pecks hit the nearest object in front. */
+export function selectPeckTarget(pose, targets, aimedTarget = null) {
+  const reachable = targets.filter((target) => canPeckTarget(pose, target))
+  if (aimedTarget && reachable.includes(aimedTarget)) return aimedTarget
+  return reachable.sort((a, b) =>
+    Math.hypot(a.x - pose.x, a.z - pose.z) - Math.hypot(b.x - pose.x, b.z - pose.z),
+  )[0]
+}
